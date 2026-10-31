@@ -1,180 +1,226 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import './App.css';
 
+const API_URL = 'http://localhost:5000/api/threats';
+
+type Severity = 'Critical' | 'High' | 'Medium' | 'Low';
+
 type Threat = {
-  id: number;
+  _id: string;
   type: string;
   indicator: string;
-  severity: 'Critical' | 'High' | 'Medium';
-  status: 'Verified' | 'Pending';
-  date: string;
+  severity: Severity;
+  status: string;
+  description: string;
+  createdAt: string;
 };
 
-const initialThreats: Threat[] = [
-  {
-    id: 1,
-    type: 'Malicious IP',
-    indicator: '192.0.2.45',
-    severity: 'Critical',
-    status: 'Verified',
-    date: '2026-10-30',
-  },
-  {
-    id: 2,
-    type: 'Phishing URL',
-    indicator: 'https://example.com/login',
-    severity: 'High',
-    status: 'Pending',
-    date: '2026-10-29',
-  },
-  {
-    id: 3,
-    type: 'File Hash',
-    indicator: 'a4f9c2d81b7e...',
-    severity: 'Medium',
-    status: 'Verified',
-    date: '2026-10-28',
-  },
-];
-
 function App() {
-  const [threats, setThreats] = useState<Threat[]>(initialThreats);
+  const [threats, setThreats] = useState<Threat[]>([]);
   const [search, setSearch] = useState('');
+  const [severityFilter, setSeverityFilter] = useState('All');
   const [showForm, setShowForm] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
 
+  const [type, setType] = useState('Malware');
   const [indicator, setIndicator] = useState('');
-  const [type, setType] = useState('Malicious IP');
-  const [severity, setSeverity] = useState<Threat['severity']>('High');
+  const [severity, setSeverity] = useState<Severity>('Medium');
+  const [description, setDescription] = useState('');
 
-  const verifiedCount = threats.filter(
-    (threat) => threat.status === 'Verified'
-  ).length;
+  async function fetchThreats() {
+    try {
+      setError('');
 
-  const filteredThreats = threats.filter((threat) =>
-    `${threat.type} ${threat.indicator} ${threat.severity} ${threat.status}`
-      .toLowerCase()
-      .includes(search.toLowerCase())
-  );
+      const response = await fetch(API_URL);
+      const result = await response.json();
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+      if (!response.ok || !result.success) {
+        throw new Error('Threats load hou shakle nahit.');
+      }
+
+      setThreats(result.data);
+    } catch {
+      setError(
+        'Backend connect hot nahi. Krupaya backend server check kara.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void fetchThreats();
+  }, []);
+
+  async function handleSubmit(
+    event: React.FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
 
-    if (!indicator.trim()) {
+    if (!type.trim() || !indicator.trim()) {
+      setError('Threat type ani indicator required aahet.');
       return;
     }
 
-    const newThreat: Threat = {
-      id: Date.now(),
-      type,
-      indicator: indicator.trim(),
-      severity,
-      status: 'Pending',
-      date: new Date().toISOString().slice(0, 10),
-    };
+    setSaving(true);
+    setError('');
+    setMessage('');
 
-    setThreats((currentThreats) => [newThreat, ...currentThreats]);
-    setIndicator('');
-    setShowForm(false);
+    try {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type,
+          indicator: indicator.trim(),
+          severity,
+          description: description.trim(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message || 'Threat save hou shakla nahi.'
+        );
+      }
+
+      setThreats((current) => [result.data, ...current]);
+      setIndicator('');
+      setDescription('');
+      setSeverity('Medium');
+      setShowForm(false);
+      setMessage('Threat successfully database madhye save zala!');
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Threat save kartana error ala.'
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
+  const filteredThreats = useMemo(() => {
+    const query = search.toLowerCase().trim();
+
+    return threats.filter((threat) => {
+      const matchesSearch =
+        threat.type.toLowerCase().includes(query) ||
+        threat.indicator.toLowerCase().includes(query) ||
+        threat.severity.toLowerCase().includes(query) ||
+        threat.status.toLowerCase().includes(query);
+
+      const matchesSeverity =
+        severityFilter === 'All' ||
+        threat.severity === severityFilter;
+
+      return matchesSearch && matchesSeverity;
+    });
+  }, [threats, search, severityFilter]);
+
+  const criticalCount = threats.filter(
+    (threat) => threat.severity === 'Critical'
+  ).length;
+
+  const highCount = threats.filter(
+    (threat) => threat.severity === 'High'
+  ).length;
+
+  const pendingCount = threats.filter(
+    (threat) => threat.status === 'Pending'
+  ).length;
+
   return (
-    <div className="app">
-      <aside className="sidebar">
+    <main className="dashboard">
+      <header className="topbar">
         <div className="brand">
-          <div className="brand-icon">⬡</div>
+          <div className="brand-icon">T</div>
           <div>
-            <h2>ThreatLedger</h2>
-            <span>THREAT INTELLIGENCE</span>
+            <h1>ThreatLedger</h1>
+            <p>DECENTRALIZED THREAT INTELLIGENCE</p>
           </div>
         </div>
 
-        <p className="menu-label">WORKSPACE</p>
-
-        <nav className="navigation">
-          <a className="nav-link active" href="#dashboard">
-            <span>▦</span> Dashboard
-          </a>
-          <a className="nav-link" href="#threats">
-            <span>⌕</span> Threat Intelligence
-          </a>
-          <a className="nav-link" href="#organizations">
-            <span>♧</span> Organizations
-          </a>
-          <a className="nav-link" href="#ledger">
-            <span>⛓</span> Blockchain Ledger
-          </a>
-        </nav>
-
-        <div className="sidebar-bottom">
-          <div className="network-status">
-            <span className="status-dot"></span>
-            <div>
-              <strong>Network Status</strong>
-              <p>Local demo mode</p>
-            </div>
-          </div>
-
-          <p className="sidebar-footer">ThreatLedger v1.0.0</p>
+        <div className="connection-status">
+          <span className="status-dot" />
+          MongoDB API
         </div>
-      </aside>
+      </header>
 
-      <main className="main-content" id="dashboard">
-        <header className="topbar">
-          <div>
-            <p className="breadcrumb">Workspace / Overview</p>
-            <h1>Security Dashboard</h1>
-          </div>
+      <section className="welcome">
+        <div>
+          <p className="eyebrow">THREAT INTELLIGENCE NETWORK</p>
+          <h2>Cyber Threat Dashboard</h2>
+          <p className="subtitle">
+            Monitor, manage and track cybersecurity threats.
+          </p>
+        </div>
 
-          <div className="user-profile">
-            <div className="avatar">S</div>
-            <div>
-              <strong>Security Analyst</strong>
-              <p>Threat Intelligence Team</p>
-            </div>
-          </div>
-        </header>
+        <button
+          className="primary-button"
+          onClick={() => {
+            setShowForm(!showForm);
+            setError('');
+            setMessage('');
+          }}
+        >
+          {showForm ? 'Cancel' : '+ Report New Threat'}
+        </button>
+      </section>
 
-        <section className="welcome-section">
-          <div>
-            <p className="eyebrow">DECENTRALIZED CYBER DEFENSE</p>
-            <h2>Threat Intelligence Overview</h2>
-            <p>
-              Monitor, analyze and share cyber threat intelligence
-              across your network.
-            </p>
-          </div>
+      {error && (
+        <div className="notice error-notice" role="alert">
+          {error}
+        </div>
+      )}
 
-          <button
-            className="primary-button"
-            onClick={() => setShowForm(!showForm)}
-          >
-            + Report New Threat
-          </button>
-        </section>
+      {message && (
+        <div className="notice success-notice" role="status">
+          {message}
+        </div>
+      )}
 
-        {showForm && (
-          <section className="form-card">
-            <h3>Report a Cyber Threat</h3>
+      {showForm && (
+        <section className="form-card">
+          <h3>Report a New Threat</h3>
+          <p className="subtitle">
+            Threat information MongoDB database madhye save hoil.
+          </p>
 
-            <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit}>
+            <div className="form-grid">
               <label>
                 Threat Type
                 <select
                   value={type}
                   onChange={(event) => setType(event.target.value)}
                 >
-                  <option>Malicious IP</option>
-                  <option>Phishing URL</option>
-                  <option>File Hash</option>
+                  <option value="Malware">Malware</option>
+                  <option value="Phishing">Phishing</option>
+                  <option value="Ransomware">Ransomware</option>
+                  <option value="DDoS">DDoS</option>
+                  <option value="SQL Injection">SQL Injection</option>
+                  <option value="Suspicious IP">Suspicious IP</option>
+                  <option value="Other">Other</option>
                 </select>
               </label>
 
               <label>
-                Threat Indicator
+                Indicator (IP / URL / Hash)
                 <input
                   value={indicator}
-                  onChange={(event) => setIndicator(event.target.value)}
-                  placeholder="Enter a sample IP, URL or file hash"
+                  onChange={(event) =>
+                    setIndicator(event.target.value)
+                  }
+                  placeholder="Example: 192.0.2.100"
                   required
                 />
               </label>
@@ -184,163 +230,167 @@ function App() {
                 <select
                   value={severity}
                   onChange={(event) =>
-                    setSeverity(event.target.value as Threat['severity'])
+                    setSeverity(event.target.value as Severity)
                   }
                 >
-                  <option>Critical</option>
-                  <option>High</option>
-                  <option>Medium</option>
+                  <option value="Low">Low</option>
+                  <option value="Medium">Medium</option>
+                  <option value="High">High</option>
+                  <option value="Critical">Critical</option>
                 </select>
               </label>
 
-              <button className="primary-button" type="submit">
-                Submit Threat
-              </button>
-            </form>
-
-            <p className="form-note">
-              Demo only: reports are currently stored in browser memory.
-            </p>
-          </section>
-        )}
-
-        <section className="stats-grid">
-          <article className="stat-card">
-            <div className="stat-heading">
-              <span>Total Threats</span>
-              <span className="stat-icon purple">⌘</span>
+              <label>
+                Description
+                <textarea
+                  value={description}
+                  onChange={(event) =>
+                    setDescription(event.target.value)
+                  }
+                  placeholder="Describe the threat..."
+                  rows={3}
+                />
+              </label>
             </div>
-            <h3>{threats.length}</h3>
-            <p className="stat-description">Threat records in this demo</p>
-          </article>
 
-          <article className="stat-card">
-            <div className="stat-heading">
-              <span>Verified Threats</span>
-              <span className="stat-icon green">✓</span>
-            </div>
-            <h3>{verifiedCount}</h3>
-            <p className="stat-description">Marked as verified</p>
-          </article>
-
-          <article className="stat-card">
-            <div className="stat-heading">
-              <span>Pending Review</span>
-              <span className="stat-icon orange">◷</span>
-            </div>
-            <h3>{threats.length - verifiedCount}</h3>
-            <p className="stat-description">Awaiting verification</p>
-          </article>
-
-          <article className="stat-card">
-            <div className="stat-heading">
-              <span>Organizations</span>
-              <span className="stat-icon blue">♧</span>
-            </div>
-            <h3>01</h3>
-            <p className="stat-description">Demo organization</p>
-          </article>
+            <button
+              className="primary-button"
+              type="submit"
+              disabled={saving}
+            >
+              {saving ? 'Saving...' : 'Submit Threat'}
+            </button>
+          </form>
         </section>
+      )}
 
-        <section className="threat-section" id="threats">
-          <div className="section-heading">
-            <div>
-              <h2>Recent Threat Intelligence</h2>
-              <p>Review the latest reported indicators.</p>
-            </div>
+      <section className="stats-grid">
+        <article className="stat-card">
+          <p>Total Threats</p>
+          <h3>{threats.length}</h3>
+          <span>Database records</span>
+        </article>
 
-            <input
-              className="search-input"
-              type="search"
-              placeholder="Search threats..."
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
+        <article className="stat-card critical-stat">
+          <p>Critical Threats</p>
+          <h3>{criticalCount}</h3>
+          <span>Critical severity</span>
+        </article>
+
+        <article className="stat-card high-stat">
+          <p>High Threats</p>
+          <h3>{highCount}</h3>
+          <span>High severity</span>
+        </article>
+
+        <article className="stat-card pending-stat">
+          <p>Pending Threats</p>
+          <h3>{pendingCount}</h3>
+          <span>Awaiting review</span>
+        </article>
+      </section>
+
+      <section className="threat-section">
+        <div className="section-heading">
+          <div>
+            <h2>Threat Intelligence Feed</h2>
+            <p className="subtitle">
+              Threat records retrieved from MongoDB.
+            </p>
           </div>
 
+          <button
+            className="secondary-button"
+            onClick={() => void fetchThreats()}
+          >
+            Refresh
+          </button>
+        </div>
+
+        <div className="filters">
+          <input
+            type="search"
+            placeholder="Search threats..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+
+          <select
+            value={severityFilter}
+            onChange={(event) =>
+              setSeverityFilter(event.target.value)
+            }
+            aria-label="Filter by severity"
+          >
+            <option value="All">All Severities</option>
+            <option value="Critical">Critical</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+        </div>
+
+        {loading ? (
+          <div className="empty-state">Loading threats...</div>
+        ) : filteredThreats.length === 0 ? (
+          <div className="empty-state">
+            <h3>No threats found</h3>
+            <p>
+              {threats.length === 0
+                ? 'Database madhye threat add karnyasathi Report New Threat click kara.'
+                : 'Search kiwa severity filter change karun paha.'}
+            </p>
+          </div>
+        ) : (
           <div className="table-wrapper">
             <table>
               <thead>
                 <tr>
-                  <th>THREAT TYPE</th>
-                  <th>INDICATOR</th>
-                  <th>SEVERITY</th>
-                  <th>STATUS</th>
-                  <th>REPORTED DATE</th>
+                  <th>Threat Type</th>
+                  <th>Indicator</th>
+                  <th>Severity</th>
+                  <th>Status</th>
+                  <th>Date</th>
                 </tr>
               </thead>
 
               <tbody>
                 {filteredThreats.map((threat) => (
-                  <tr key={threat.id}>
+                  <tr key={threat._id}>
                     <td>{threat.type}</td>
-                    <td className="indicator">{threat.indicator}</td>
+                    <td className="indicator-cell">
+                      {threat.indicator}
+                    </td>
                     <td>
                       <span
-                        className={`badge severity-${threat.severity.toLowerCase()}`}
+                        className={`severity-badge ${threat.severity.toLowerCase()}`}
                       >
                         {threat.severity}
                       </span>
                     </td>
+                    <td>{threat.status}</td>
                     <td>
-                      <span
-                        className={`badge status-${threat.status.toLowerCase()}`}
-                      >
-                        {threat.status}
-                      </span>
+                      {threat.createdAt
+                        ? new Date(
+                            threat.createdAt
+                          ).toLocaleDateString()
+                        : 'N/A'}
                     </td>
-                    <td>{threat.date}</td>
                   </tr>
                 ))}
-
-                {filteredThreats.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="empty-state">
-                      No matching threats found.
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
+        )}
+      </section>
 
-          <p className="demo-warning">
-            ⚠ Sample data for demonstration only. These indicators have not
-            been independently verified as malicious.
-          </p>
-        </section>
-
-        <section className="bottom-grid">
-          <article className="info-card" id="ledger">
-            <div className="info-icon">⛓</div>
-            <div>
-              <h3>Blockchain Ledger</h3>
-              <p>
-                Future integration: record threat hashes and verification
-                events on a blockchain.
-              </p>
-              <span className="coming-soon">NOT CONNECTED</span>
-            </div>
-          </article>
-
-          <article className="info-card" id="organizations">
-            <div className="info-icon">♧</div>
-            <div>
-              <h3>Organization Network</h3>
-              <p>
-                A foundation for sharing threat intelligence between
-                participating organizations.
-              </p>
-              <span className="coming-soon">DEMO MODE</span>
-            </div>
-          </article>
-        </section>
-
-        <footer className="page-footer">
-          ThreatLedger © 2026 · Decentralized Cyber Threat Intelligence
-        </footer>
-      </main>
-    </div>
+      <footer className="footer">
+        <p>
+          ThreatLedger · Decentralized Cyber Threat Intelligence
+        </p>
+        <p>React · Express · MongoDB</p>
+      </footer>
+    </main>
   );
 }
 
